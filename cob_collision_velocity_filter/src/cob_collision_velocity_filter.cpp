@@ -48,8 +48,9 @@
  *
  ****************************************************************/
 #include <cob_collision_velocity_filter.h>
-
 #include <visualization_msgs/Marker.h>
+#include <ros/console.h>
+#include <log4cxx/logger.h>
 
 // Constructor
 CollisionVelocityFilter::CollisionVelocityFilter()
@@ -78,13 +79,8 @@ CollisionVelocityFilter::CollisionVelocityFilter()
   obstacles_sub_ = nh_.subscribe<nav_msgs::OccupancyGrid>("obstacles", 1, boost::bind(&CollisionVelocityFilter::obstaclesCB, this, _1));
 
   // create service client
-  srv_client_get_footprint_ = nh_.serviceClient<cob_footprint_observer::GetFootprint>("/get_footprint");
-
   // create Timer and call getFootprint Service periodically
-  double footprint_update_frequency;
-  if(!nh_.hasParam("footprint_update_frequency")) ROS_WARN("Used default parameter for footprint_update_frequency [1.0 Hz].");
-  nh_.param("footprint_update_frequency",footprint_update_frequency,1.0);
-  get_footprint_timer_ = nh_.createTimer(ros::Duration(1/footprint_update_frequency), boost::bind(&CollisionVelocityFilter::getFootprintServiceCB, this, _1));
+  footprint_sub_ = nh_.subscribe<geometry_msgs::PolygonStamped>("footprint", 1, boost::bind(&CollisionVelocityFilter::getFootprintCB, this, _1));
 
   // read parameters from parameter server
   // parameters from costmap
@@ -190,45 +186,32 @@ void CollisionVelocityFilter::obstaclesCB(const nav_msgs::OccupancyGrid::ConstPt
 }
 
 // timer callback for periodically checking footprint
-void CollisionVelocityFilter::getFootprintServiceCB(const ros::TimerEvent&)
+void CollisionVelocityFilter::getFootprintCB(const geometry_msgs::PolygonStamped::ConstPtr &data)
 {
-  cob_footprint_observer::GetFootprint srv = cob_footprint_observer::GetFootprint();
-  // check if service is reachable
-  if (srv_client_get_footprint_.call(srv))
-  {
-    // adjust footprint
-    geometry_msgs::PolygonStamped footprint_poly = srv.response.footprint;
-    std::vector<geometry_msgs::Point> footprint;
-    geometry_msgs::Point pt;
-
-    for(unsigned int i=0; i<footprint_poly.polygon.points.size(); ++i) {
-      pt.x = footprint_poly.polygon.points[i].x;
-      pt.y = footprint_poly.polygon.points[i].y;
-      pt.z = footprint_poly.polygon.points[i].z;
-      footprint.push_back(pt);
-    }
-
-    pthread_mutex_lock(&m_mutex);
-
-    footprint_front_ = footprint_front_initial_;
-    footprint_rear_ = footprint_rear_initial_;
-    footprint_left_ = footprint_left_initial_;
-    footprint_right_ = footprint_right_initial_;
-
-    robot_footprint_ = footprint;
-    for(unsigned int i=0; i<footprint.size(); i++) {
-      if(footprint[i].x > footprint_front_) footprint_front_ = footprint[i].x;
-      if(footprint[i].x < footprint_rear_) footprint_rear_ = footprint[i].x;
-      if(footprint[i].y > footprint_left_) footprint_left_ = footprint[i].y;
-      if(footprint[i].y < footprint_right_) footprint_right_ = footprint[i].y;
-    }
-
-    pthread_mutex_unlock(&m_mutex);
-
-  } else {
-    ROS_WARN("Cannot reach service /get_footprint");
+  ROS_DEBUG("CollisionVelocityFilter::getFootprintCB START!");
+  // adjust footprint
+  geometry_msgs::PolygonStamped footprint_poly = *data;
+  std::vector<geometry_msgs::Point> footprint;
+  geometry_msgs::Point pt;
+  for(unsigned int i=0; i<footprint_poly.polygon.points.size(); ++i) {
+	pt.x = footprint_poly.polygon.points[i].x;
+	pt.y = footprint_poly.polygon.points[i].y;
+	pt.z = footprint_poly.polygon.points[i].z;
+	footprint.push_back(pt);
   }
-
+  pthread_mutex_lock(&m_mutex);
+  footprint_front_ = footprint_front_initial_;
+  footprint_rear_ = footprint_rear_initial_;
+  footprint_left_ = footprint_left_initial_;
+  footprint_right_ = footprint_right_initial_;
+  robot_footprint_ = footprint;
+  for(unsigned int i=0; i<footprint.size(); i++) {
+	if(footprint[i].x > footprint_front_) footprint_front_ = footprint[i].x;
+	if(footprint[i].x < footprint_rear_) footprint_rear_ = footprint[i].x;
+	if(footprint[i].y > footprint_left_) footprint_left_ = footprint[i].y;
+	if(footprint[i].y < footprint_right_) footprint_right_ = footprint[i].y;
+  }
+  pthread_mutex_unlock(&m_mutex);
 }
 
 void
@@ -718,6 +701,10 @@ int main(int argc, char** argv)
   // create nodeClass
   CollisionVelocityFilter collisionVelocityFilter;
 
+  //set logger level
+  if( ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Debug) ) {
+     ros::console::notifyLoggerLevelsChanged();
+  }
 
   ros::spin();
 

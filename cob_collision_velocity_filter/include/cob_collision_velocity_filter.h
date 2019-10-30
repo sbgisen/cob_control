@@ -119,7 +119,7 @@ class CollisionVelocityFilter
     ///
     /// @brief  Timer callback, calls GetFootprint Service and adjusts footprint
     ///
-    void getFootprintServiceCB(const ros::TimerEvent&);
+    void getFootprintCB(const geometry_msgs::PolygonStamped::ConstPtr &data);
 
     ///
     /// @brief  Dynamic reconfigure callback
@@ -141,10 +141,9 @@ class CollisionVelocityFilter
     ros::Publisher topic_pub_relevant_obstacles_;
 
     /// declaration of subscriber
-    ros::Subscriber joystick_velocity_sub_, obstacles_sub_;
+    ros::Subscriber joystick_velocity_sub_, obstacles_sub_, footprint_sub_;
 
     /// declaration of service client
-    ros::ServiceClient srv_client_get_footprint_;
 
     /// dynamic reconfigure
     dynamic_reconfigure::Server<cob_collision_velocity_filter::CollisionVelocityFilterConfig> dyn_server_;
