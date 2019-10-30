@@ -82,6 +82,14 @@
 // BUT velocity limited marker
 #include "velocity_limited_marker.h"
 
+//TF Listener
+#include <geometry_msgs/PointStamped.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/TransformStamped.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/message_filter.h>
+#include <tf2/LinearMath/Matrix3x3.h>
+
 ///
 /// @class CollisionVelocityFilter
 /// @brief checks for obstacles in driving direction and stops the robot
@@ -115,21 +123,6 @@ class CollisionVelocityFilter
     ///
     void obstaclesCB(const nav_msgs::OccupancyGrid::ConstPtr &obstacles);
 
-
-    ///
-    /// @brief  Timer callback, calls GetFootprint Service and adjusts footprint
-    ///
-    void getFootprintCB(const geometry_msgs::PolygonStamped::ConstPtr &data);
-
-    ///
-    /// @brief  Dynamic reconfigure callback
-    /// @param  config - configuration file with dynamic reconfigureable parameters
-    /// @param  level - the result of ORing together all level values of the parameters that have changed, for now unnecessary
-    ///
-    void dynamicReconfigureCB(const cob_collision_velocity_filter::CollisionVelocityFilterConfig &config,
-                              const uint32_t level);
-
-
     /// create a handle for this node, initialize node
     ros::NodeHandle nh_;
 
@@ -139,6 +132,7 @@ class CollisionVelocityFilter
     /// declaration of publisher
     ros::Publisher topic_pub_command_;
     ros::Publisher topic_pub_relevant_obstacles_;
+    ros::Publisher topic_pub_lookat_;
 
     /// declaration of subscriber
     ros::Subscriber joystick_velocity_sub_, obstacles_sub_, footprint_sub_;
@@ -199,34 +193,37 @@ class CollisionVelocityFilter
     /// @brief  stops movement of the robot
     ///
     void stopMovement();
+    //initialize tf listner
+    void initTfListener();
 
     pthread_mutex_t m_mutex;
 
-    //obstacle_treshold
-    int costmap_obstacle_treshold_;
+    //rosparams
+    double slowdown_radious_, stop_radious_, collision_radious_;    //collision stop params
+    double vx_max_;
+    std::string global_frame_, robot_frame_;     //frames
+    int costmap_obstacle_treshold_;    //obstacle_treshold
 
-    //frames
-    std::string global_frame_, robot_frame_;
+    //calculated from rosparam
+    double desired_stopping_time_, braking_distance_, breaking_accel_;
 
     //velocity
     geometry_msgs::Vector3 robot_twist_linear_, robot_twist_angular_;
-    double v_max_, vtheta_max_;
-    double ax_max_, ay_max_, atheta_max_;
 
+    //obstacle search
+    geometry_msgs::TransformStamped tf_robot_;
+    double robot_angle_, collision_look_angle_;
     //obstacle avoidence
-    std::vector<geometry_msgs::Point> robot_footprint_;
-    double footprint_left_, footprint_right_, footprint_front_, footprint_rear_;
-    double footprint_left_initial_, footprint_right_initial_, footprint_front_initial_, footprint_rear_initial_;
     bool costmap_received_;
+    double stopping_interval_;
     nav_msgs::OccupancyGrid last_costmap_received_, relevant_obstacles_;
-    double influence_radius_, stop_threshold_, obstacle_damping_dist_, use_circumscribed_threshold_;
-    double closest_obstacle_dist_, closest_obstacle_angle_;
 
     // variables for slow down behaviour
-    double last_time_;
-    double kp_, kv_;
-    double vx_last_, vy_last_, vtheta_last_;
-    double virt_mass_;
+    ros::Time last_time_ = ros::Time::now();
+    double vx_last_;
+    //TF2 Listener
+    boost::shared_ptr<tf2_ros::Buffer> tfBuffer_ptr;
+    boost::shared_ptr<tf2_ros::TransformListener> tfListener_ptr;
 
     // BUT velocity limited marker
     cob_collision_velocity_filter::VelocityLimitedMarker velocity_limited_marker_;
