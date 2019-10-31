@@ -186,7 +186,7 @@ private:
 	//initialize tf listner
 	void initTfListener();
 
-	pthread_mutex_t m_mutex;
+	// pthread_mutex_t m_mutex;
 
 	//rosparams
 	double slowdown_radious_, stop_radious_, collision_radious_; //collision stop params

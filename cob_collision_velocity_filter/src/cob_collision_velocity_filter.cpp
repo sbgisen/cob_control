@@ -57,7 +57,7 @@ CollisionVelocityFilter::CollisionVelocityFilter() {
 	// create node handle
 	nh_ = ros::NodeHandle("~");
 	initTfListener();
-	m_mutex = PTHREAD_MUTEX_INITIALIZER;
+	// m_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 	// node handle to get footprint from parameter server
 	std::string costmap_parameter_source;
@@ -74,16 +74,16 @@ CollisionVelocityFilter::CollisionVelocityFilter() {
 	// implementation of topics to publish (command for base and list of relevant obstacles)
 	topic_pub_command_ = nh_.advertise<geometry_msgs::Twist>("command", 1);
 	topic_pub_relevant_obstacles_ = nh_.advertise<nav_msgs::OccupancyGrid>(
-			"relevant_obstacles_grid", 1);
+			"relevant_obstacles_grid", 10);
 	topic_pub_lookat_ = nh_.advertise<geometry_msgs::PoseStamped>(
-			"collision_lookat", 1);
+			"collision_lookat", 10);
 	// subscribe to twist-movement of teleop
 	joystick_velocity_sub_ = nh_.subscribe<geometry_msgs::Twist>("teleop_twist",
 			10,
 			boost::bind(&CollisionVelocityFilter::joystickVelocityCB, this,
 					_1));
 	// subscribe to the costmap to receive inflated cells
-	obstacles_sub_ = nh_.subscribe<nav_msgs::OccupancyGrid>("obstacles", 10,
+	obstacles_sub_ = nh_.subscribe<nav_msgs::OccupancyGrid>("obstacles", 1,
 			boost::bind(&CollisionVelocityFilter::obstaclesCB, this, _1));
 
 	// read parameters from parameter server
@@ -143,10 +143,10 @@ void CollisionVelocityFilter::initTfListener() {
 // joystick_velocityCB reads twist command from joystick
 void CollisionVelocityFilter::joystickVelocityCB(
 		const geometry_msgs::Twist::ConstPtr &twist) {
-	pthread_mutex_lock(&m_mutex);
+	// pthread_mutex_lock(&m_mutex);
 	robot_twist_linear_ = twist->linear;
 	robot_twist_angular_ = twist->angular;
-	pthread_mutex_unlock(&m_mutex);
+	// pthread_mutex_unlock(&m_mutex);
 
 	//get robot direction
 
@@ -205,13 +205,13 @@ void CollisionVelocityFilter::joystickVelocityCB(
 }
 
 // obstaclesCB reads obstacles from costmap
-void CollisionVelocityFilter::obstaclesCB(
-		const nav_msgs::OccupancyGrid::ConstPtr &obstacles) {
-	pthread_mutex_lock(&m_mutex);
-	if (obstacles->data.size() != 0)
+void CollisionVelocityFilter::obstaclesCB(const nav_msgs::OccupancyGrid::ConstPtr &obstacles) {
+	// pthread_mutex_lock(&m_mutex);
+	if (obstacles->data.size() != 0){
 		costmap_received_ = true;
-	last_costmap_received_ = *obstacles;
-	pthread_mutex_unlock(&m_mutex);
+		last_costmap_received_ = *obstacles;
+	}
+	// pthread_mutex_unlock(&m_mutex);
 }
 
 // sets corrected velocity of joystick command
@@ -401,9 +401,9 @@ void CollisionVelocityFilter::obstacleHandler() {
 	}
 //	pthread_mutex_unlock(&m_mutex);
 //  topic_pub_relevant_obstacles_.publish(last_costmap_received_);
-	topic_pub_relevant_obstacles_.publish(relevant_obstacles_);
 	if(costmap_received_ || nearest_obstacle_distance_ < nearest_obstacle_linear_){
 		nearest_obstacle_linear_ = nearest_obstacle_distance_;
+		topic_pub_relevant_obstacles_.publish(relevant_obstacles_);
 	}
 	costmap_received_ = false;
 }
