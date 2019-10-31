@@ -95,133 +95,132 @@
 /// @brief checks for obstacles in driving direction and stops the robot
 ///
 ///
-class CollisionVelocityFilter
-{
-  public:
+class CollisionVelocityFilter {
+public:
 
-    ///
-    /// @brief  Constructor
-    ///
-    CollisionVelocityFilter();
+	///
+	/// @brief  Constructor
+	///
+	CollisionVelocityFilter();
 
+	///
+	/// @brief  Destructor
+	///
+	~CollisionVelocityFilter();
 
-    ///
-    /// @brief  Destructor
-    ///
-    ~CollisionVelocityFilter();
+	///
+	/// @brief  reads twist command from teleop device (joystick, teleop_keyboard, ...) and calls functions
+	///         for collision check (obstacleHandler) and driving of the robot (performControllerStep)
+	/// @param  twist - velocity command sent as twist message (twist.linear.x/y/z, twist.angular.x/y/z)
+	///
+	void joystickVelocityCB(const geometry_msgs::Twist::ConstPtr &twist);
 
-    ///
-    /// @brief  reads twist command from teleop device (joystick, teleop_keyboard, ...) and calls functions
-    ///         for collision check (obstacleHandler) and driving of the robot (performControllerStep)
-    /// @param  twist - velocity command sent as twist message (twist.linear.x/y/z, twist.angular.x/y/z)
-    ///
-    void joystickVelocityCB(const geometry_msgs::Twist::ConstPtr &twist);
+	///
+	/// @brief  reads obstacles from costmap
+	/// @param  obstacles - 2D occupancy grid in rolling window mode!
+	///
+	void obstaclesCB(const nav_msgs::OccupancyGrid::ConstPtr &obstacles);
 
-    ///
-    /// @brief  reads obstacles from costmap
-    /// @param  obstacles - 2D occupancy grid in rolling window mode!
-    ///
-    void obstaclesCB(const nav_msgs::OccupancyGrid::ConstPtr &obstacles);
+	/// create a handle for this node, initialize node
+	ros::NodeHandle nh_;
 
-    /// create a handle for this node, initialize node
-    ros::NodeHandle nh_;
+	/// Timer for periodically calling GetFootprint Service
+	ros::Timer get_footprint_timer_;
 
-    /// Timer for periodically calling GetFootprint Service
-    ros::Timer get_footprint_timer_;
+	/// declaration of publisher
+	ros::Publisher topic_pub_command_;
+	ros::Publisher topic_pub_relevant_obstacles_;
+	ros::Publisher topic_pub_lookat_;
 
-    /// declaration of publisher
-    ros::Publisher topic_pub_command_;
-    ros::Publisher topic_pub_relevant_obstacles_;
-    ros::Publisher topic_pub_lookat_;
+	/// declaration of subscriber
+	ros::Subscriber joystick_velocity_sub_, obstacles_sub_, footprint_sub_;
 
-    /// declaration of subscriber
-    ros::Subscriber joystick_velocity_sub_, obstacles_sub_, footprint_sub_;
+	/// declaration of service client
 
-    /// declaration of service client
+	/// dynamic reconfigure
+	dynamic_reconfigure::Server<
+			cob_collision_velocity_filter::CollisionVelocityFilterConfig> dyn_server_;
+	dynamic_reconfigure::Server<
+			cob_collision_velocity_filter::CollisionVelocityFilterConfig>::CallbackType dynCB_;
 
-    /// dynamic reconfigure
-    dynamic_reconfigure::Server<cob_collision_velocity_filter::CollisionVelocityFilterConfig> dyn_server_;
-    dynamic_reconfigure::Server<cob_collision_velocity_filter::CollisionVelocityFilterConfig>::CallbackType dynCB_;
+private:
+	/* core functions */
 
-  private:
-    /* core functions */
+	///
+	/// @brief  checks distance to obstacles in driving direction and slows down/stops
+	///         robot and publishes command velocity to robot
+	///
+	void performControllerStep();
 
-    ///
-    /// @brief  checks distance to obstacles in driving direction and slows down/stops
-    ///         robot and publishes command velocity to robot
-    ///
-    void performControllerStep();
+	///
+	/// @brief  checks for obstacles in driving direction of the robot (rotation included)
+	///         and publishes relevant obstacles
+	///
+	void obstacleHandler();
 
-    ///
-    /// @brief  checks for obstacles in driving direction of the robot (rotation included)
-    ///         and publishes relevant obstacles
-    ///
-    void obstacleHandler();
+	/* helper functions */
 
+	///
+	/// @brief  returns the sign of x
+	///
+	double sign(double x);
 
-    /* helper functions */
+	///
+	/// @brief  computes distance between two points
+	/// @param  a,b - Points
+	/// @return distance
+	///
+	double getDistance2d(geometry_msgs::Point a, geometry_msgs::Point b);
 
+	///
+	/// @brief  checks if obstacle lies already within footprint -> this is ignored due to sensor readings of the hull etc
+	/// @param  x_obstacle - x coordinate of obstacle in occupancy grid local costmap
+	/// @param  y_obstacle - y coordinate of obstacle in occupancy grid local costmap
+	/// @return true if obstacle outside of footprint
+	///
+	bool obstacleValid(double x_obstacle, double y_obstacle);
 
-    ///
-    /// @brief  returns the sign of x
-    ///
-    double sign(double x);
+	///
+	/// @brief  stops movement of the robot
+	///
+	void stopMovement();
+	//initialize tf listner
+	void initTfListener();
 
-    ///
-    /// @brief  computes distance between two points
-    /// @param  a,b - Points
-    /// @return distance
-    ///
-    double getDistance2d(geometry_msgs::Point a, geometry_msgs::Point b);
+	pthread_mutex_t m_mutex;
 
-    ///
-    /// @brief  checks if obstacle lies already within footprint -> this is ignored due to sensor readings of the hull etc
-    /// @param  x_obstacle - x coordinate of obstacle in occupancy grid local costmap
-    /// @param  y_obstacle - y coordinate of obstacle in occupancy grid local costmap
-    /// @return true if obstacle outside of footprint
-    ///
-    bool obstacleValid(double x_obstacle, double y_obstacle);
+	//rosparams
+	double slowdown_radious_, stop_radious_, collision_radious_; //collision stop params
+	double vx_max_;
+	std::string global_frame_, robot_frame_;     //frames
+	int costmap_obstacle_treshold_;    //obstacle_treshold
 
-    ///
-    /// @brief  stops movement of the robot
-    ///
-    void stopMovement();
-    //initialize tf listner
-    void initTfListener();
+	//calculated from rosparam
+	double desired_stopping_time_, braking_distance_, breaking_accel_;
 
-    pthread_mutex_t m_mutex;
+	//velocity
+	geometry_msgs::Vector3 robot_twist_linear_, robot_twist_angular_;
 
-    //rosparams
-    double slowdown_radious_, stop_radious_, collision_radious_;    //collision stop params
-    double vx_max_;
-    std::string global_frame_, robot_frame_;     //frames
-    int costmap_obstacle_treshold_;    //obstacle_treshold
+	//obstacle search
+	geometry_msgs::TransformStamped tf_robot_;
+	double robot_angle_, collision_look_angle_;
+	//obstacle avoidence
+	bool costmap_received_;
+	double stopping_interval_;
+	nav_msgs::OccupancyGrid last_costmap_received_, relevant_obstacles_;
 
-    //calculated from rosparam
-    double desired_stopping_time_, braking_distance_, breaking_accel_;
+	// variables for slow down behaviour
+	ros::Time last_time_ = ros::Time::now();
+	double vx_last_;
+	//TF2 Listener
+	boost::shared_ptr<tf2_ros::Buffer> tfBuffer_ptr;
+	boost::shared_ptr<tf2_ros::TransformListener> tfListener_ptr;
 
-    //velocity
-    geometry_msgs::Vector3 robot_twist_linear_, robot_twist_angular_;
+	// BUT velocity limited marker
+	cob_collision_velocity_filter::VelocityLimitedMarker velocity_limited_marker_;
 
-    //obstacle search
-    geometry_msgs::TransformStamped tf_robot_;
-    double robot_angle_, collision_look_angle_;
-    //obstacle avoidence
-    bool costmap_received_;
-    double stopping_interval_;
-    nav_msgs::OccupancyGrid last_costmap_received_, relevant_obstacles_;
-
-    // variables for slow down behaviour
-    ros::Time last_time_ = ros::Time::now();
-    double vx_last_;
-    //TF2 Listener
-    boost::shared_ptr<tf2_ros::Buffer> tfBuffer_ptr;
-    boost::shared_ptr<tf2_ros::TransformListener> tfListener_ptr;
-
-    // BUT velocity limited marker
-    cob_collision_velocity_filter::VelocityLimitedMarker velocity_limited_marker_;
-
-}; //CollisionVelocityFilter
+};
+//CollisionVelocityFilter
 
 #endif
 
