@@ -171,7 +171,7 @@ private:
 	/// @return distance
 	///
 	double getDistance2d(geometry_msgs::Point a, geometry_msgs::Point b);
-
+	double getNormXY(double x, double y);
 	///
 	/// @brief  checks if obstacle lies already within footprint -> this is ignored due to sensor readings of the hull etc
 	/// @param  x_obstacle - x coordinate of obstacle in occupancy grid local costmap
@@ -206,7 +206,8 @@ private:
 	double robot_angle_, collision_look_angle_;
 	//obstacle avoidence
 	bool costmap_received_;
-	double stopping_interval_;
+	double stopping_interval_, nearest_obstacle_distance_, nearest_obstacle_linear_;
+	int nearest_obstacle_direction_;
 	nav_msgs::OccupancyGrid last_costmap_received_, relevant_obstacles_;
 
 	// variables for slow down behaviour

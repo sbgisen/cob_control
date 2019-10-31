@@ -79,11 +79,11 @@ CollisionVelocityFilter::CollisionVelocityFilter() {
 			"collision_lookat", 1);
 	// subscribe to twist-movement of teleop
 	joystick_velocity_sub_ = nh_.subscribe<geometry_msgs::Twist>("teleop_twist",
-			1,
+			10,
 			boost::bind(&CollisionVelocityFilter::joystickVelocityCB, this,
 					_1));
 	// subscribe to the costmap to receive inflated cells
-	obstacles_sub_ = nh_.subscribe<nav_msgs::OccupancyGrid>("obstacles", 1,
+	obstacles_sub_ = nh_.subscribe<nav_msgs::OccupancyGrid>("obstacles", 10,
 			boost::bind(&CollisionVelocityFilter::obstaclesCB, this, _1));
 
 	// read parameters from parameter server
@@ -108,7 +108,7 @@ CollisionVelocityFilter::CollisionVelocityFilter() {
 	if (!nh_.hasParam("stop_radious"))
 		ROS_WARN("Used default parameter for stop_radious [1.0]");
 	nh_.param("stop_radious", stop_radious_, 1.0);
-	if (stop_radious_ < slowdown_radious_ - 0.1) {
+	if (stop_radious_ > slowdown_radious_ - 0.1) {
 		stop_radious_ = slowdown_radious_ - 0.1; //TODO: parametarize
 	}
 	if (!nh_.hasParam("collision_radious"))
@@ -164,11 +164,21 @@ void CollisionVelocityFilter::joystickVelocityCB(
 		if (fabs(robot_twist_linear_.x) < 0.001) {
 			collision_look_angle_ = robot_angle_;
 		} else if (robot_twist_linear_.x > 0.0) {
-			collision_look_angle_ = robot_angle_
-					+ (stopping_interval_ * robot_twist_angular_.z);
+			double angle_diff = stopping_interval_ * robot_twist_angular_.z;
+			if(angle_diff > M_PI / 2.0){
+				angle_diff = M_PI / 2.0;
+			}else if(angle_diff < -M_PI / 2.0){
+				angle_diff = -M_PI / 2.0;
+			}
+			collision_look_angle_ = robot_angle_ + angle_diff;
 		} else {
-			collision_look_angle_ = - M_PI + robot_angle_
-					+ (stopping_interval_ * robot_twist_angular_.z);
+			double angle_diff = stopping_interval_ * robot_twist_angular_.z;
+			if(angle_diff > M_PI / 2.0){
+				angle_diff = M_PI / 2.0;
+			}else if(angle_diff < -M_PI / 2.0){
+				angle_diff = -M_PI / 2.0;
+			}
+			collision_look_angle_ = - M_PI + robot_angle_ + angle_diff;
 		}
 		tf2::Quaternion lookat_quat;
 		lookat_quat.setRPY(0.0, 0.0, collision_look_angle_);
@@ -207,7 +217,6 @@ void CollisionVelocityFilter::obstaclesCB(
 // sets corrected velocity of joystick command
 void CollisionVelocityFilter::performControllerStep() {
 
-	double vx_max, vy_max;
 	geometry_msgs::Twist cmd_vel, cmd_vel_in;
 
 	cmd_vel_in.linear = robot_twist_linear_;
@@ -215,114 +224,62 @@ void CollisionVelocityFilter::performControllerStep() {
 
 	cmd_vel.linear = robot_twist_linear_;
 	cmd_vel.angular = robot_twist_angular_;
-	/*
-	 ros::Duration dt_ros = ros::Time::now() - last_time_;
-	 last_time_ = ros::Time::now();
-	 double dt = dt_ros.toSec();
 
-	 double vel_angle = atan2(cmd_vel.linear.y,cmd_vel.linear.x);
-	 vx_max = v_max_ * fabs(cos(vel_angle));
-	 if (vx_max > fabs(cmd_vel.linear.x)) vx_max = fabs(cmd_vel.linear.x);
-	 vy_max = v_max_ * fabs(sin(vel_angle));
-	 if (vy_max > fabs(cmd_vel.linear.y)) vy_max = fabs(cmd_vel.linear.y);
+	ros::Duration dt_ros = ros::Time::now() - last_time_;
+	last_time_ = ros::Time::now();
+	double dt = dt_ros.toSec();
+	//limit max velocity
+	if(cmd_vel.linear.x > vx_max_){
+		cmd_vel.linear.x = vx_max_;
+	}else if(cmd_vel.linear.x < -vx_max_){
+		cmd_vel.linear.x = -vx_max_;
+	}
 
-	 //Slow down in any way while approximating an obstacle:
-	 if(closest_obstacle_dist_ < influence_radius_) {
-	 double F_x, F_y;
-	 double vx_d, vy_d, vx_factor, vy_factor;
-	 double kv_obst=kv_, vx_max_obst=vx_max, vy_max_obst=vy_max;
+	//check collision
+	if(vx_last_ * cmd_vel.linear.x < 0){
+		vx_last_ = 0; //reset vx_last_ when liner-x plus/minus has changed.
+	}
+	if(nearest_obstacle_linear_ < slowdown_radious_ && nearest_obstacle_direction_ * cmd_vel.linear.x > 0.000001){
+		double breaking_length = nearest_obstacle_linear_ - stop_radious_;
 
-	 //implementation for linear decrease of v_max:
-	 double obstacle_linear_slope_x = vx_max / (obstacle_damping_dist_ - stop_threshold_);
-	 vx_max_obst = (closest_obstacle_dist_- stop_threshold_ + stop_threshold_/10.0f) * obstacle_linear_slope_x;
-	 if(vx_max_obst > vx_max) vx_max_obst = vx_max;
-	 else if(vx_max_obst < 0.0f) vx_max_obst = 0.0f;
-
-	 double obstacle_linear_slope_y = vy_max / (obstacle_damping_dist_ - stop_threshold_);
-	 vy_max_obst = (closest_obstacle_dist_- stop_threshold_ + stop_threshold_/10.0f) * obstacle_linear_slope_y;
-	 if(vy_max_obst > vy_max) vy_max_obst = vy_max;
-	 else if(vy_max_obst < 0.0f) vy_max_obst = 0.0f;
-
-	 //Translational movement
-	 //calculation of v factor to limit maxspeed
-	 double closest_obstacle_dist_x = closest_obstacle_dist_ * cos(closest_obstacle_angle_);
-	 double closest_obstacle_dist_y = closest_obstacle_dist_ * sin(closest_obstacle_angle_);
-	 vx_d = kp_/kv_obst * closest_obstacle_dist_x;
-	 vy_d = kp_/kv_obst * closest_obstacle_dist_y;
-	 vx_factor = vx_max_obst / sqrt(vy_d*vy_d + vx_d*vx_d);
-	 vy_factor = vy_max_obst / sqrt(vy_d*vy_d + vx_d*vx_d);
-	 if(vx_factor > 1.0) vx_factor = 1.0;
-	 if(vy_factor > 1.0) vy_factor = 1.0;
-
-	 F_x = - kv_obst * vx_last_ + vx_factor * kp_ * closest_obstacle_dist_x;
-	 F_y = - kv_obst * vy_last_ + vy_factor * kp_ * closest_obstacle_dist_y;
-
-	 cmd_vel.linear.x = vx_last_ + F_x / virt_mass_ * dt;
-	 cmd_vel.linear.y = vy_last_ + F_y / virt_mass_ * dt;
-	 ROS_DEBUG("CollisionVelocityFilter::performControllerStep - %f -> %f", cmd_vel_in.linear.x, cmd_vel.linear.x);
-
+		if(breaking_length < 0.000001){
+			ROS_WARN("Found obstacle CLOSE!: ObstacleDistance[%f], StopDistance[%f] ", nearest_obstacle_linear_, stop_radious_);
+			breaking_length = 0;
+			cmd_vel.linear.x = 0;
+			costmap_received_ = true;
+		 }else{
+			double deaccel = (vx_last_ * vx_last_) / (2.0 * breaking_length);
+			double vel_deaccel = vx_last_ - nearest_obstacle_direction_ * deaccel * dt;
+			double vel_desired_stopping = nearest_obstacle_direction_ * sqrt(2.0 * breaking_accel_ * breaking_length );
+			if(nearest_obstacle_direction_ > 0 && vel_desired_stopping > vel_deaccel){
+				vel_deaccel = vel_desired_stopping;
+			}else if(nearest_obstacle_direction_ < 0 && vel_desired_stopping < vel_deaccel){
+				vel_deaccel = vel_desired_stopping;
+			}
+			if(vel_deaccel * vx_last_ < -0.001 || vel_deaccel * cmd_vel.linear.x < -0.001){
+				vel_deaccel = 0;
+				ROS_WARN("Deaccel = 0 (direction changed)");
+			}
+			if(fabs(vel_deaccel) < fabs(cmd_vel.linear.x)){
+				 cmd_vel.linear.x = vel_deaccel;
+			}
+			ROS_DIBUG("Found an obstacle: Distance[%f], breaking:[%f], stop_radious:[%f], vel:[%f], vdes:[%f]", nearest_obstacle_linear_, breaking_length, stop_radious_, vel_deaccel,vel_desired_stopping);
+			if(nearest_obstacle_direction_ * cmd_vel.linear.x < 0){
+				nearest_obstacle_linear_ += fabs(cmd_vel.linear.x) * dt;
+			}else{
+				nearest_obstacle_linear_ -= fabs(cmd_vel.linear.x) * dt;
+			}
+		 }
 	 }
-
-	 // make sure, the computed and commanded velocities are not greater than the specified max velocities
-	 if (fabs(cmd_vel.linear.x) > vx_max) cmd_vel.linear.x = sign(cmd_vel.linear.x) * vx_max;
-	 if (fabs(cmd_vel.linear.y) > vy_max) cmd_vel.linear.y = sign(cmd_vel.linear.y) * vy_max;
-	 if (fabs(cmd_vel.angular.z) > vtheta_max_) cmd_vel.angular.z = sign(cmd_vel.angular.z) * vtheta_max_;
-
-	 // limit acceleration:
-	 // only acceleration (in terms of speeding up in any direction) is limited,
-	 // deceleration (in terms of slowing down) is handeled either by cob_teleop or the potential field
-	 // like slow-down behaviour above
-	 if (fabs(cmd_vel.linear.x) > fabs(vx_last_))
-	 {
-	 if ((cmd_vel.linear.x - vx_last_)/dt > ax_max_)
-	 cmd_vel.linear.x = vx_last_ + ax_max_ * dt;
-	 else if((cmd_vel.linear.x - vx_last_)/dt < -ax_max_)
-	 cmd_vel.linear.x = vx_last_ - ax_max_ * dt;
-	 }
-	 if (fabs(cmd_vel.linear.y) > fabs(vy_last_))
-	 {
-	 if ((cmd_vel.linear.y - vy_last_)/dt > ay_max_)
-	 cmd_vel.linear.y = vy_last_ + ay_max_ * dt;
-	 else if ((cmd_vel.linear.y - vy_last_)/dt < -ay_max_)
-	 cmd_vel.linear.y = vy_last_ - ay_max_ * dt;
-	 }
-	 if (fabs(cmd_vel.angular.z) > fabs(vtheta_last_))
-	 {
-	 if ((cmd_vel.angular.z - vtheta_last_)/dt > atheta_max_)
-	 cmd_vel.angular.z = vtheta_last_ + atheta_max_ * dt;
-	 else if ((cmd_vel.angular.z - vtheta_last_)/dt < -atheta_max_)
-	 cmd_vel.angular.z = vtheta_last_ - atheta_max_ * dt;
-	 }
-
-	 pthread_mutex_lock(&m_mutex);
-	 vx_last_ = cmd_vel.linear.x;
-	 vy_last_ = cmd_vel.linear.y;
-	 vtheta_last_ = cmd_vel.angular.z;
-	 pthread_mutex_unlock(&m_mutex);
-
-	 velocity_limited_marker_.publishMarkers(cmd_vel_in.linear.x, cmd_vel.linear.x, cmd_vel_in.linear.y, cmd_vel.linear.y, cmd_vel_in.angular.z, cmd_vel.angular.z);
-
-	 // if closest obstacle is within stop_threshold, then do not move
-	 if( closest_obstacle_dist_ < stop_threshold_ ) {
-
-	 ROS_DEBUG("CollisionVelocityFilter::performControllerStep calls stopMovement()");
-	 stopMovement();
-	 }
-	 else
-	 {
-	 // publish adjusted velocity
-	 topic_pub_command_.publish(cmd_vel);
-	 }
-	 */
+	vx_last_ = cmd_vel.linear.x;
 	topic_pub_command_.publish(cmd_vel);
 	return;
 }
 
 void CollisionVelocityFilter::obstacleHandler() {
 	if (!costmap_received_) {
-		ROS_WARN(
-				"No costmap has been received by cob_collision_velocity_filter, the robot will drive without obstacle avoidance!");
-		return;
+//		ROS_DEBUG("No costmap has been received by cob_collision_velocity_filter, the robot will drive without obstacle avoidance!");
+//		return;
 	}
 	double cur_distance_to_center, cur_distance_to_border;
 	double obstacle_theta_robot, obstacle_delta_theta_robot,
@@ -335,10 +292,13 @@ void CollisionVelocityFilter::obstacleHandler() {
 	zero_position.z = 0.0f;
 
 	//find relevant obstacles
-//  pthread_mutex_lock(&m_mutex);
+//	pthread_mutex_lock(&m_mutex);
 	relevant_obstacles_.header = last_costmap_received_.header;
 	relevant_obstacles_.info = last_costmap_received_.info;
 	relevant_obstacles_.data.clear();
+
+	double nearest_obstacle_distance_tmp = slowdown_radious_;
+	nearest_obstacle_direction_ = 0;
 
 	for (unsigned int i = 0; i < last_costmap_received_.data.size(); i++) {
 		if (last_costmap_received_.data[i] == -1) {
@@ -417,63 +377,44 @@ void CollisionVelocityFilter::obstacleHandler() {
 					}
 				}
 			}
-//      if(distance_abs.getX() > 1.0 + pixel_size && distance_abs.getY() > - 1.0 - pixel_size  ){
-//      if( fabs(distance_relative.getY()) < collision_radious_ ){
-//        cur_obstacle_relevant = true;
-//      }else{
-//          cur_obstacle_relevant = false;
-//      }
-//      cur_obstacle_relevant = true;
-//      geometry_msgs::Point cell;
-//      cell.x = (i%(int)(last_costmap_received_.info.width))*last_costmap_received_.info.resolution + last_costmap_received_.info.origin.position.x;
-//      cell.y = (i/(int)(last_costmap_received_.info.width))*last_costmap_received_.info.resolution + last_costmap_received_.info.origin.position.y;
-//      cell.z = 0.0f;
-//
-//
-//      cur_obstacle_relevant = false;
-//      cur_distance_to_center = getDistance2d(zero_position, cell);
 
 			if (cur_obstacle_relevant) {
-//			ROS_DEBUG_STREAM_NAMED("obstacleHandler", "[cob_collision_velocity_filter] Detected an obstacle");
 				//relevant obstacle in tube found
+				//ROS_DEBUG_STREAM_NAMED("obstacleHandler", "[cob_collision_velocity_filter] Detected an obstacle");
 				relevant_obstacles_.data.push_back(100);
-
-				/*
-				 //now calculate distance of current, relevant obstacle to robot
-				 if (obstacle_theta_robot >= corner_front_right && obstacle_theta_robot < corner_front_left){
-				 //obstacle in front:
-				 cur_distance_to_border = cur_distance_to_center - fabs(footprint_front_) / fabs(cos(obstacle_theta_robot));
-				 }else if (obstacle_theta_robot >= corner_front_left && obstacle_theta_robot < corner_rear_left){
-				 //obstacle left:
-				 cur_distance_to_border = cur_distance_to_center - fabs(footprint_left_) / fabs(sin(obstacle_theta_robot));
-				 }else if (obstacle_theta_robot >= corner_rear_left || obstacle_theta_robot < corner_rear_right){
-				 //obstacle in rear:
-				 cur_distance_to_border = cur_distance_to_center - fabs(footprint_rear_) / fabs(cos(obstacle_theta_robot));
-				 }else{
-				 //obstacle right:
-				 cur_distance_to_border = cur_distance_to_center - fabs(footprint_right_) / fabs(sin(obstacle_theta_robot));
-				 }
-
-				 if (cur_distance_to_border < closest_obstacle_dist_){
-				 closest_obstacle_dist_ = cur_distance_to_border;
-				 closest_obstacle_angle_ = obstacle_theta_robot;
-				 }
-				 */
+				double obstacle_distance = getNormXY(distance_abs.getX(), distance_abs.getY());
+				if(nearest_obstacle_distance_tmp > obstacle_distance && robot_twist_linear_.x * distance_relative.getX() > 0){
+					nearest_obstacle_distance_tmp = obstacle_distance;
+					if(distance_relative.getX() > 0){
+						nearest_obstacle_direction_ = 1;
+					}else{
+						nearest_obstacle_direction_ = -1;
+					}
+					if(nearest_obstacle_distance_tmp < slowdown_radious_ - 0.001){
+						nearest_obstacle_distance_ = nearest_obstacle_distance_tmp;
+					}
+				}
 			} else {
 				relevant_obstacles_.data.push_back(0);
 			}
-
 		}
 	}
-//  pthread_mutex_unlock(&m_mutex);
+//	pthread_mutex_unlock(&m_mutex);
 //  topic_pub_relevant_obstacles_.publish(last_costmap_received_);
 	topic_pub_relevant_obstacles_.publish(relevant_obstacles_);
-
+	if(costmap_received_ || nearest_obstacle_distance_ < nearest_obstacle_linear_){
+		nearest_obstacle_linear_ = nearest_obstacle_distance_;
+	}
+	costmap_received_ = false;
 }
 
 double CollisionVelocityFilter::getDistance2d(geometry_msgs::Point a,
 		geometry_msgs::Point b) {
 	return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2));
+}
+
+double CollisionVelocityFilter::getNormXY(double x, double y) {
+	return sqrt( x * x + y * y);
 }
 
 double CollisionVelocityFilter::sign(double x) {
