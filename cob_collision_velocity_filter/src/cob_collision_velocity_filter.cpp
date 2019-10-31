@@ -243,7 +243,7 @@ void CollisionVelocityFilter::performControllerStep() {
 		double breaking_length = nearest_obstacle_linear_ - stop_radious_;
 
 		if(breaking_length < 0.000001){
-			ROS_WARN("Found obstacle CLOSE!: ObstacleDistance[%f], StopDistance[%f] ", nearest_obstacle_linear_, stop_radious_);
+			// ROS_WARN("Found obstacle CLOSE!: ObstacleDistance[%f], StopDistance[%f] ", nearest_obstacle_linear_, stop_radious_);
 			breaking_length = 0;
 			cmd_vel.linear.x = 0;
 			costmap_received_ = true;
@@ -263,7 +263,7 @@ void CollisionVelocityFilter::performControllerStep() {
 			if(fabs(vel_deaccel) < fabs(cmd_vel.linear.x)){
 				 cmd_vel.linear.x = vel_deaccel;
 			}
-			ROS_DIBUG("Found an obstacle: Distance[%f], breaking:[%f], stop_radious:[%f], vel:[%f], vdes:[%f]", nearest_obstacle_linear_, breaking_length, stop_radious_, vel_deaccel,vel_desired_stopping);
+			// ROS_DEBUG("Found an obstacle: Distance[%f], breaking:[%f], stop_radious:[%f], vel:[%f], vdes:[%f]", nearest_obstacle_linear_, breaking_length, stop_radious_, vel_deaccel,vel_desired_stopping);
 			if(nearest_obstacle_direction_ * cmd_vel.linear.x < 0){
 				nearest_obstacle_linear_ += fabs(cmd_vel.linear.x) * dt;
 			}else{

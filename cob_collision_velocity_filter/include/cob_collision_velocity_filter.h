@@ -73,7 +73,6 @@
 #include <boost/algorithm/string.hpp>
 
 // ROS service includes
-#include "cob_footprint_observer/GetFootprint.h"
 
 // dynamic reconfigure includes
 #include <dynamic_reconfigure/server.h>

@@ -1,1 +1,0 @@
-ObstacleDistance[] distances
