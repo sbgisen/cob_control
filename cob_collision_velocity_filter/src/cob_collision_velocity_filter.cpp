@@ -328,15 +328,60 @@ void CollisionVelocityFilter::obstacleHandler() {
       int cell_row = (i/(int)(last_costmap_received_.info.width));
 
       tf2::Vector3 distance_abs;
-      distance_abs.setX((-((int)last_costmap_received_.info.width/2) + cell_row) * last_costmap_received_.info.resolution);
-      distance_abs.setY((-((int)last_costmap_received_.info.width/2) + cell_col) * last_costmap_received_.info.resolution);
+      double pixel_size = (double)last_costmap_received_.info.resolution;
+      distance_abs.setX( ( (double)cell_col - (double)last_costmap_received_.info.width / 2.0 ) * pixel_size );
+      distance_abs.setY( ( (double)cell_row - (double)last_costmap_received_.info.width / 2.0 ) * pixel_size );
       distance_abs.setZ(0);
-      if(distance_abs.getX() > 0 && distance_abs.getY() > 0 ){
-//    	ROS_WARN("obstacleHandler (x,y) = %f , %f", distance_abs.getX(), distance_abs.getY());
-        cur_obstacle_relevant = true;
+
+      tf2::Vector3 distance_relative;
+      tf2::Quaternion lookat_quat;
+      lookat_quat.setRPY(0.0, 0.0, robot_angle_);
+      tf2::Matrix3x3 rotation_diff(lookat_quat);
+      distance_relative = rotation_diff.inverse() * distance_abs;
+
+      tf2::Vector3 distance_lookat;
+      lookat_quat.setRPY(0.0, 0.0, collision_look_angle_);
+      rotation_diff.setRotation(lookat_quat);
+      distance_lookat = rotation_diff.inverse() * distance_abs;
+
+      cur_obstacle_relevant = false;
+      if(fabs(robot_twist_angular_.z) < 0.01){
+		if(robot_twist_linear_.x < 0){
+			if( fabs(distance_relative.getY()) < collision_radious_ && distance_relative.getX() < 0){
+			  cur_obstacle_relevant = true;
+			}
+		}else{
+			if( fabs(distance_relative.getY()) < collision_radious_ && distance_relative.getX() > 0){
+			  cur_obstacle_relevant = true;
+			}
+		}
+      }else if(robot_twist_angular_.z > 0){
+  		if(robot_twist_linear_.x < 0){
+            if( distance_relative.getY() < collision_radious_ && distance_lookat.getY() < collision_radious_ && distance_relative.getX() < 0){
+              cur_obstacle_relevant = true;
+            }
+  		}else{
+            if( distance_relative.getY() > - collision_radious_  &&  distance_lookat.getY() < collision_radious_ && distance_relative.getX() > 0){
+              cur_obstacle_relevant = true;
+            }
+  		}
       }else{
-          cur_obstacle_relevant = false;
+    		if(robot_twist_linear_.x < 0){
+              if(distance_relative.getY() > - collision_radious_  &&  distance_lookat.getY() > - collision_radious_ && distance_relative.getX() < 0){
+                cur_obstacle_relevant = true;
+              }
+    		}else{
+              if( distance_relative.getY() < collision_radious_ && distance_lookat.getY() > - collision_radious_ && distance_relative.getX() > 0){
+                cur_obstacle_relevant = true;
+              }
+    		}
       }
+//      if(distance_abs.getX() > 1.0 + pixel_size && distance_abs.getY() > - 1.0 - pixel_size  ){
+//      if( fabs(distance_relative.getY()) < collision_radious_ ){
+//        cur_obstacle_relevant = true;
+//      }else{
+//          cur_obstacle_relevant = false;
+//      }
 //      cur_obstacle_relevant = true;
 //      geometry_msgs::Point cell;
 //      cell.x = (i%(int)(last_costmap_received_.info.width))*last_costmap_received_.info.resolution + last_costmap_received_.info.origin.position.x;
@@ -384,151 +429,6 @@ void CollisionVelocityFilter::obstacleHandler() {
 //  topic_pub_relevant_obstacles_.publish(last_costmap_received_);
   topic_pub_relevant_obstacles_.publish(relevant_obstacles_);
 
-}
-
-// load robot footprint from costmap_2d_ros to keep same footprint format
-std::vector<geometry_msgs::Point> CollisionVelocityFilter::loadRobotFootprint(ros::NodeHandle node){
-  std::vector<geometry_msgs::Point> footprint;
-  geometry_msgs::Point pt;
-  double padding;
-
-  std::string padding_param, footprint_param;
-  if(!node.searchParam("footprint_padding", padding_param))
-    padding = 0.01;
-  else
-    node.param(padding_param, padding, 0.01);
-
-  //grab the footprint from the parameter server if possible
-  XmlRpc::XmlRpcValue footprint_list;
-  std::string footprint_string;
-  std::vector<std::string> footstring_list;
-  if(node.searchParam("footprint", footprint_param)){
-    node.getParam(footprint_param, footprint_list);
-    if(footprint_list.getType() == XmlRpc::XmlRpcValue::TypeString) {
-      footprint_string = std::string(footprint_list);
-
-      //if there's just an empty footprint up there, return
-      if(footprint_string == "[]" || footprint_string == "")
-        return footprint;
-
-      boost::erase_all(footprint_string, " ");
-
-      boost::char_separator<char> sep("[]");
-      boost::tokenizer<boost::char_separator<char> > tokens(footprint_string, sep);
-      footstring_list = std::vector<std::string>(tokens.begin(), tokens.end());
-    }
-    //make sure we have a list of lists
-    if(!(footprint_list.getType() == XmlRpc::XmlRpcValue::TypeArray && footprint_list.size() > 2) && !(footprint_list.getType() == XmlRpc::XmlRpcValue::TypeString && footstring_list.size() > 5)){
-      ROS_FATAL("The footprint must be specified as list of lists on the parameter server, %s was specified as %s", footprint_param.c_str(), std::string(footprint_list).c_str());
-      throw std::runtime_error("The footprint must be specified as list of lists on the parameter server with at least 3 points eg: [[x1, y1], [x2, y2], ..., [xn, yn]]");
-    }
-
-    if(footprint_list.getType() == XmlRpc::XmlRpcValue::TypeArray) {
-      for(int i = 0; i < footprint_list.size(); ++i){
-        //make sure we have a list of lists of size 2
-        XmlRpc::XmlRpcValue point = footprint_list[i];
-        if(!(point.getType() == XmlRpc::XmlRpcValue::TypeArray && point.size() == 2)){
-          ROS_FATAL("The footprint must be specified as list of lists on the parameter server eg: [[x1, y1], [x2, y2], ..., [xn, yn]], but this spec is not of that form");
-          throw std::runtime_error("The footprint must be specified as list of lists on the parameter server eg: [[x1, y1], [x2, y2], ..., [xn, yn]], but this spec is not of that form");
-        }
-
-        //make sure that the value we're looking at is either a double or an int
-        if(!(point[0].getType() == XmlRpc::XmlRpcValue::TypeInt || point[0].getType() == XmlRpc::XmlRpcValue::TypeDouble)){
-          ROS_FATAL("Values in the footprint specification must be numbers");
-          throw std::runtime_error("Values in the footprint specification must be numbers");
-        }
-        pt.x = point[0].getType() == XmlRpc::XmlRpcValue::TypeInt ? (int)(point[0]) : (double)(point[0]);
-        pt.x += sign(pt.x) * padding;
-
-        //make sure that the value we're looking at is either a double or an int
-        if(!(point[1].getType() == XmlRpc::XmlRpcValue::TypeInt || point[1].getType() == XmlRpc::XmlRpcValue::TypeDouble)){
-          ROS_FATAL("Values in the footprint specification must be numbers");
-          throw std::runtime_error("Values in the footprint specification must be numbers");
-        }
-        pt.y = point[1].getType() == XmlRpc::XmlRpcValue::TypeInt ? (int)(point[1]) : (double)(point[1]);
-        pt.y += sign(pt.y) * padding;
-
-        footprint.push_back(pt);
-
-        node.deleteParam(footprint_param);
-        std::ostringstream oss;
-        bool first = true;
-        BOOST_FOREACH(geometry_msgs::Point p, footprint) {
-          if(first) {
-            oss << "[[" << p.x << "," << p.y << "]";
-            first = false;
-          }
-          else {
-            oss << ",[" << p.x << "," << p.y << "]";
-          }
-        }
-        oss << "]";
-        node.setParam(footprint_param, oss.str().c_str());
-        node.setParam("footprint", oss.str().c_str());
-      }
-    }
-
-    else if(footprint_list.getType() == XmlRpc::XmlRpcValue::TypeString) {
-      std::vector<geometry_msgs::Point> footprint_spec;
-      bool valid_foot = true;
-      BOOST_FOREACH(std::string t, footstring_list) {
-        if( t != "," ) {
-          boost::erase_all(t, " ");
-          boost::char_separator<char> pt_sep(",");
-          boost::tokenizer<boost::char_separator<char> > pt_tokens(t, pt_sep);
-          std::vector<std::string> point(pt_tokens.begin(), pt_tokens.end());
-
-          if(point.size() != 2) {
-            ROS_WARN("Each point must have exactly 2 coordinates");
-            valid_foot = false;
-            break;
-          }
-
-          std::vector<double>tmp_pt;
-          BOOST_FOREACH(std::string p, point) {
-            std::istringstream iss(p);
-            double temp;
-            if(iss >> temp) {
-              tmp_pt.push_back(temp);
-            }
-            else {
-              ROS_WARN("Each coordinate must convert to a double.");
-              valid_foot = false;
-              break;
-            }
-          }
-          if(!valid_foot)
-            break;
-
-          geometry_msgs::Point pt;
-          pt.x = tmp_pt[0];
-          pt.y = tmp_pt[1];
-
-          footprint_spec.push_back(pt);
-        }
-      }
-      if (valid_foot) {
-        footprint = footprint_spec;
-        node.setParam("footprint", footprint_string);
-      }
-      else {
-        ROS_FATAL("This footprint is not vaid it must be specified as a list of lists with at least 3 points, you specified %s", footprint_string.c_str());
-        throw std::runtime_error("The footprint must be specified as list of lists on the parameter server with at least 3 points eg: [[x1, y1], [x2, y2], ..., [xn, yn]]");
-      }
-    }
-  }
-/*
-  footprint_right_ = 0.0f; footprint_left_ = 0.0f; footprint_front_ = 0.0f; footprint_rear_ = 0.0f;
-  //extract rectangular borders for simplifying:
-  for(unsigned int i=0; i<footprint.size(); i++) {
-    if(footprint[i].x > footprint_front_) footprint_front_ = footprint[i].x;
-    if(footprint[i].x < footprint_rear_) footprint_rear_ = footprint[i].x;
-    if(footprint[i].y > footprint_left_) footprint_left_ = footprint[i].y;
-    if(footprint[i].y < footprint_right_) footprint_right_ = footprint[i].y;
-  }
-  ROS_DEBUG("Extracted rectangular footprint for cob_collision_velocity_filter: Front: %f, Rear %f, Left: %f, Right %f", footprint_front_, footprint_rear_, footprint_left_, footprint_right_);
-*/
-  return footprint;
 }
 
 double CollisionVelocityFilter::getDistance2d(geometry_msgs::Point a, geometry_msgs::Point b) {

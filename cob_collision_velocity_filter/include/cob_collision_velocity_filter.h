@@ -161,13 +161,6 @@ class CollisionVelocityFilter
 
     /* helper functions */
 
-    ///
-    /// @brief  loads the robot footprint published by the local costmap
-    /// @param  node - NodeHandle to the local costmap
-    /// @return footprint polygon as vector
-    ///
-    std::vector<geometry_msgs::Point> loadRobotFootprint(ros::NodeHandle node);
-
 
     ///
     /// @brief  returns the sign of x
