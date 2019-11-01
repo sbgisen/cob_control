@@ -73,6 +73,8 @@ CollisionVelocityFilter::CollisionVelocityFilter() {
 
 	// implementation of topics to publish (command for base and list of relevant obstacles)
 	topic_pub_command_ = nh_.advertise<geometry_msgs::Twist>("command", 1);
+	// publish collision_flag when collision detected(true)
+	topic_pub_collision_flag_ = nh_.advertise<std_msgs::Bool>("collision_flag", 1);
 	topic_pub_relevant_obstacles_ = nh_.advertise<nav_msgs::OccupancyGrid>(
 			"relevant_obstacles_grid", 10);
 	topic_pub_lookat_ = nh_.advertise<geometry_msgs::PoseStamped>(
@@ -161,23 +163,28 @@ void CollisionVelocityFilter::joystickVelocityCB(
 				robot_euler.x);
 		robot_angle_ = robot_euler.z;
 		robot_quat.setRPY(0.0, 0.0, robot_euler.z);
+		//rotate in place -> look front
 		if (fabs(robot_twist_linear_.x) < 0.001) {
 			collision_look_angle_ = robot_angle_;
 		} else if (robot_twist_linear_.x > 0.0) {
+			//move forward
 			double angle_diff = stopping_interval_ * robot_twist_angular_.z;
 			if(angle_diff > M_PI / 2.0){
 				angle_diff = M_PI / 2.0;
 			}else if(angle_diff < -M_PI / 2.0){
 				angle_diff = -M_PI / 2.0;
 			}
+			//look curving direction
 			collision_look_angle_ = robot_angle_ + angle_diff;
 		} else {
+			//move backward
 			double angle_diff = stopping_interval_ * robot_twist_angular_.z;
 			if(angle_diff > M_PI / 2.0){
 				angle_diff = M_PI / 2.0;
 			}else if(angle_diff < -M_PI / 2.0){
 				angle_diff = -M_PI / 2.0;
 			}
+			//look curving direction
 			collision_look_angle_ = - M_PI + robot_angle_ + angle_diff;
 		}
 		tf2::Quaternion lookat_quat;
@@ -216,16 +223,18 @@ void CollisionVelocityFilter::obstaclesCB(const nav_msgs::OccupancyGrid::ConstPt
 
 // sets corrected velocity of joystick command
 void CollisionVelocityFilter::performControllerStep() {
+	//publish true when collision detected
+	bool collision_detected = false;
+	static int collision_flag_counter = 0;
+	static const int collision_flag_counter_max = 10;
 
 	geometry_msgs::Twist cmd_vel, cmd_vel_in;
-
 	cmd_vel_in.linear = robot_twist_linear_;
 	cmd_vel_in.angular = robot_twist_angular_;
-
 	cmd_vel.linear = robot_twist_linear_;
 	cmd_vel.angular = robot_twist_angular_;
-
 	ros::Duration dt_ros = ros::Time::now() - last_time_;
+
 	last_time_ = ros::Time::now();
 	double dt = dt_ros.toSec();
 	//limit max velocity
@@ -239,15 +248,19 @@ void CollisionVelocityFilter::performControllerStep() {
 	if(vx_last_ * cmd_vel.linear.x < 0){
 		vx_last_ = 0; //reset vx_last_ when liner-x plus/minus has changed.
 	}
+	double breaking_length = slowdown_radious_;
 	if(nearest_obstacle_linear_ < slowdown_radious_ && nearest_obstacle_direction_ * cmd_vel.linear.x > 0.000001){
-		double breaking_length = nearest_obstacle_linear_ - stop_radious_;
-
+		//detect obstacle inside slowdown_radious_
+		breaking_length = nearest_obstacle_linear_ - stop_radious_;
 		if(breaking_length < 0.000001){
+			collision_detected = true;
 			// ROS_WARN("Found obstacle CLOSE!: ObstacleDistance[%f], StopDistance[%f] ", nearest_obstacle_linear_, stop_radious_);
+			//if the obstacle is in stop_radious_ -> stop
 			breaking_length = 0;
 			cmd_vel.linear.x = 0;
 			costmap_received_ = true;
 		 }else{
+			 //calculate slowdown speed
 			double deaccel = (vx_last_ * vx_last_) / (2.0 * breaking_length);
 			double vel_deaccel = vx_last_ - nearest_obstacle_direction_ * deaccel * dt;
 			double vel_desired_stopping = nearest_obstacle_direction_ * sqrt(2.0 * breaking_accel_ * breaking_length );
@@ -258,7 +271,7 @@ void CollisionVelocityFilter::performControllerStep() {
 			}
 			if(vel_deaccel * vx_last_ < -0.001 || vel_deaccel * cmd_vel.linear.x < -0.001){
 				vel_deaccel = 0;
-				ROS_WARN("Deaccel = 0 (direction changed)");
+//				ROS_DEBUG("Deaccel = 0 (direction changed)");
 			}
 			if(fabs(vel_deaccel) < fabs(cmd_vel.linear.x)){
 				 cmd_vel.linear.x = vel_deaccel;
@@ -273,6 +286,22 @@ void CollisionVelocityFilter::performControllerStep() {
 	 }
 	vx_last_ = cmd_vel.linear.x;
 	topic_pub_command_.publish(cmd_vel);
+	//publish collision detected flag
+	std_msgs::Bool collision_detected_topic;
+	if(collision_detected == true){
+		if(collision_flag_counter < collision_flag_counter_max){
+			collision_flag_counter ++;
+		}
+	}else{
+		collision_flag_counter = 0;
+	}
+	collision_detected_topic.data = false;
+	if( collision_flag_counter == collision_flag_counter_max){
+		collision_flag_counter = collision_flag_counter_max;
+		collision_detected_topic.data = true;
+	}
+	topic_pub_collision_flag_.publish(collision_detected_topic);
+
 	return;
 }
 

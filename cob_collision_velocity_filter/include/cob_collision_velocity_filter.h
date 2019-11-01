@@ -72,15 +72,6 @@
 #include <boost/foreach.hpp>
 #include <boost/algorithm/string.hpp>
 
-// ROS service includes
-
-// dynamic reconfigure includes
-#include <dynamic_reconfigure/server.h>
-#include <cob_collision_velocity_filter/CollisionVelocityFilterConfig.h>
-
-// BUT velocity limited marker
-#include "velocity_limited_marker.h"
-
 //TF Listener
 #include <geometry_msgs/PointStamped.h>
 #include <geometry_msgs/PoseStamped.h>
@@ -88,6 +79,9 @@
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/message_filter.h>
 #include <tf2/LinearMath/Matrix3x3.h>
+
+//bool for collision stacking flag
+#include <std_msgs/Bool.h>
 
 ///
 /// @class CollisionVelocityFilter
@@ -130,17 +124,10 @@ public:
 	ros::Publisher topic_pub_command_;
 	ros::Publisher topic_pub_relevant_obstacles_;
 	ros::Publisher topic_pub_lookat_;
+	ros::Publisher topic_pub_collision_flag_;
 
 	/// declaration of subscriber
 	ros::Subscriber joystick_velocity_sub_, obstacles_sub_, footprint_sub_;
-
-	/// declaration of service client
-
-	/// dynamic reconfigure
-	dynamic_reconfigure::Server<
-			cob_collision_velocity_filter::CollisionVelocityFilterConfig> dyn_server_;
-	dynamic_reconfigure::Server<
-			cob_collision_velocity_filter::CollisionVelocityFilterConfig>::CallbackType dynCB_;
 
 private:
 	/* core functions */
@@ -216,8 +203,6 @@ private:
 	boost::shared_ptr<tf2_ros::Buffer> tfBuffer_ptr;
 	boost::shared_ptr<tf2_ros::TransformListener> tfListener_ptr;
 
-	// BUT velocity limited marker
-	cob_collision_velocity_filter::VelocityLimitedMarker velocity_limited_marker_;
 
 };
 //CollisionVelocityFilter
