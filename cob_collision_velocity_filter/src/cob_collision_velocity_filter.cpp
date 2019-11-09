@@ -252,8 +252,11 @@ void CollisionVelocityFilter::performControllerStep() {
 	if(nearest_obstacle_linear_ < slowdown_radious_ && nearest_obstacle_direction_ * cmd_vel.linear.x > 0.000001){
 		//detect obstacle inside slowdown_radious_
 		breaking_length = nearest_obstacle_linear_ - stop_radious_;
-		if(breaking_length < 0.000001){
+		if(breaking_length < 0.01){
 			collision_detected = true;
+		}
+		if(breaking_length < 0.000001){
+//			collision_detected = true;
 			// ROS_WARN("Found obstacle CLOSE!: ObstacleDistance[%f], StopDistance[%f] ", nearest_obstacle_linear_, stop_radious_);
 			//if the obstacle is in stop_radious_ -> stop
 			breaking_length = 0;
